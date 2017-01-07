@@ -38,6 +38,10 @@
 
 /* USER CODE BEGIN Includes */
 #define WATERING_PERIOD_HOURS 0
+#define WATER_PUMP_ACTIVE_MS 2000
+
+#define ADC_HUMIDITY_100_PRC 2662  // max is 0xFFF
+#define HUMIDITY_LOW_THR_PRC 30
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -93,9 +97,14 @@ uint32_t ADC1_GetValue(uint32_t channel) {
 	return value;
 }
 
+uint8_t get_humidity() {
+	uint32_t adc_val = ADC1_GetValue(ADC_CHANNEL_9);
+	uint8_t humidity = (uint8_t) (adc_val * 100.0 / ADC_HUMIDITY_100_PRC);
+	return humidity;
+}
+
 uint8_t need_to_water() {
-	GPIO_PinState digital_thr = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11);
-	return digital_thr;
+	return get_humidity() < HUMIDITY_LOW_THR_PRC;
 }
 
 uint8_t can_water() {
@@ -104,24 +113,22 @@ uint8_t can_water() {
 }
 
 void print_debug_info() {
-	uint32_t adc_val = ADC1_GetValue(ADC_CHANNEL_9);
-	uint8_t adc_percents = (uint8_t) (adc_val * 100.0 / (1U << 12));
-	uint8_t humidity = 100 - adc_percents;
+	uint8_t humidity = get_humidity();
 	db_printf("ADC humidity %d %%, need to water %d, can water %d\n",
 			humidity,
 			need_to_water(),
 			can_water());
 }
 
-void led_check_need_to_water() {
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1 - need_to_water());
+void led_signal_need_to_water() {
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1 - need_to_water());  // inverse logic
 }
 
 void water_plant() {
 	db_printf("\tWatering...\n");
 	last_watering_hrs = ms_to_hours(HAL_GetTick());
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
-	HAL_Delay(3000);
+	HAL_Delay(WATER_PUMP_ACTIVE_MS);
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
 }
 
@@ -160,7 +167,7 @@ int main(void)
 #ifdef DEBUG
 		print_debug_info();
 #endif
-		led_check_need_to_water();
+		led_signal_need_to_water();
 		if (need_to_water() && can_water()) {
 			water_plant();
 		}
